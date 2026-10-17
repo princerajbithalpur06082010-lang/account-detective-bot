@@ -10,7 +10,7 @@ from telegram.ext import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-TOKEN = os.getenv("8814993295:AAGDc_5S2IsO__IjcwXRUC8hCcHAplHJ5FI")
+TOKEN = os.getenv("BOT_TOKEN")
 
 BOT_NAME = "Account Inspector"
 
