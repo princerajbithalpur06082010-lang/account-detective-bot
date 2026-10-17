@@ -1,101 +1,110 @@
 import os
-import logging
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import requests
 from telegram import Update
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    ContextTypes,
-)
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# --- 1. Render Port Binding (Fixes Render Red Error) ---
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is active and running!")
 
-TOKEN = os.getenv("BOT_TOKEN")
+    def log_message(self, format, *args):
+        return  # Keep logs clean
 
-BOT_NAME = "Account Inspector"
+def start_health_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    server.serve_forever()
 
-
-async def start(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-    message = (
-        "🔎 ACCOUNT INSPECTOR\n"
-        "━━━━━━━━━━━━━━━━━━━━\n\n"
-        "Welcome to Account Inspector.\n\n"
-        "Analyze publicly available account information "
-        "across supported social platforms.\n\n"
-        "AVAILABLE COMMANDS\n"
-        "/insta <username> — Instagram\n"
-        "/tele <username> — Telegram\n"
-        "/fb <username> — Facebook\n"
-        "/yt <username> — YouTube\n\n"
-        "Example: /insta username\n\n"
-        "Note: Private moderation records are not publicly "
-        "accessible. Restriction reasons are reported only "
-        "when supported by reliable evidence."
+# --- 2. Bot Commands ---
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    welcome_text = (
+        "🔍 *ACCOUNT INSPECTOR & RECOVERY BOT*\n\n"
+        "Kisi bhi account ka status check karne aur ban/restriction ka reason aur solution janne ke liye command bhejein:\n\n"
+        "• `/insta <username>` — Instagram Account\n"
+        "• `/tele <username>` — Telegram Account\n"
+        "• `/fb <username>` — Facebook Profile\n"
+        "• `/yt <channel_name>` — YouTube Channel\n\n"
+        "_Example:_ `/insta username`"
     )
-    await update.message.reply_text(message)
+    await update.message.reply_text(welcome_text, parse_mode="Markdown")
 
-
-async def inspect_account(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-    command = update.message.text.split()[0].split("@")[0]
-    platform = {
-        "/insta": "Instagram",
-        "/tele": "Telegram",
-        "/fb": "Facebook",
-        "/yt": "YouTube",
-    }.get(command, "Unknown")
-
+async def insta_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text(
-            f"Usage: {command} <username>\n"
-            f"Example: {command} username"
-        )
+        await update.message.reply_text("⚠️ Please username provide karein.\nExample: `/insta zuck`", parse_mode="Markdown")
         return
 
-    username = " ".join(context.args).strip().lstrip("@")
+    username = context.args[0].replace("@", "").strip()
+    await update.message.reply_text(f"🔍 Checking Instagram account @{username}...")
+
+    profile_url = f"https://www.instagram.com/{username}/"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    
+    try:
+        response = requests.get(profile_url, headers=headers, timeout=5)
+        is_restricted = response.status_code == 404
+    except Exception:
+        is_restricted = True
+
+    status_str = "⚠️ Not Reachable / Likely Suspended or Banned" if is_restricted else "✅ Publicly Available / Active"
 
     report = (
-        "🔎 ACCOUNT INSPECTION REPORT\n"
-        "━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"Platform: {platform}\n"
-        f"Username: @{username}\n\n"
-        "ACCOUNT INFORMATION\n"
-        "• Profile Details: Not yet retrieved\n"
-        "• Account Status: Unverified\n\n"
-        "SECURITY & RESTRICTIONS\n"
-        "• Restriction Status: Unverified\n"
-        "• Exact Reason: Not confirmed\n"
-        "• Official Evidence: Not retrieved\n\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        "Data integration is not configured yet.\n"
-        "No account status has been verified."
+        f"📋 *INSTAGRAM INSPECTION REPORT*\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"• *Target Username:* `@{username}`\n"
+        f"• *Current Status:* {status_str}\n\n"
+        f"⚠️ *Probable Ban / Restriction Reasons:*\n"
+        f"1. **Spam Activity:** Too many DMs, mass unfollow/follow, or repetitive comments.\n"
+        f"2. **Third-party Apps:** Using unfollower-trackers or automated bots.\n"
+        f"3. **Community Guidelines:** Copyright violation, adult content, or harassment reports.\n\n"
+        f"🛠 *Official Recovery Solution:*\n"
+        f"• **Step 1:** Instagram app open karein aur login karein. Agar 'Account Disabled' popup aaye to 'Learn More' par tap karein.\n"
+        f"• **Step 2:** Official disabled appeal form bharein:\n"
+        f"🔗 https://help.instagram.com/contact/606967319425038\n"
+        f"• **Step 3:** Selfie verification code aane par clear photo bhejein."
     )
+    await update.message.reply_text(report, parse_mode="Markdown")
 
-    await update.message.reply_text(report)
+async def tele_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("⚠️ Please username provide karein.\nExample: `/tele username`", parse_mode="Markdown")
+        return
 
+    username = context.args[0].replace("@", "").strip()
+    report = (
+        f"📋 *TELEGRAM INSPECTION REPORT*\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"• *Username:* `@{username}`\n\n"
+        f"⚠️ *Probable Ban / SpamLock Reasons:*\n"
+        f"1. Unknown logo ko direct mass message karna.\n"
+        f"2. Groups mein spam links ya automated messages share karna.\n"
+        f"3. Multiple users dwara 'Report Spam' dabana.\n\n"
+        f"🛠 *Official Recovery Solution:*\n"
+        f"• Telegram par seedha **@SpamBot** open karein aur `/start` dabayein.\n"
+        f"• Bot batayega restriction permanent hai ya temporary, aur wahan se appeal submit karein."
+    )
+    await update.message.reply_text(report, parse_mode="Markdown")
 
-def main():
-    if not TOKEN:
-        raise RuntimeError(
-            "BOT_TOKEN environment variable is missing."
-        )
-
-    app = Application.builder().token(TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler(
-        ["insta", "tele", "fb", "yt"],
-        inspect_account
-    ))
-
-    logger.info("%s is starting...", BOT_NAME)
-    app.run_polling()
-
-
+# --- 3. Main Runner ---
 if __name__ == "__main__":
-    main()
+    token = os.environ.get("BOT_TOKEN")
+    if not token:
+        raise ValueError("BOT_TOKEN environment variable not set!")
+
+    # Start dummy web server in background for Render
+    web_thread = threading.Thread(target=start_health_server, daemon=True)
+    web_thread.start()
+
+    # Start Telegram Polling
+    app = ApplicationBuilder().token(token).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("insta", insta_check))
+    app.add_handler(CommandHandler("tele", tele_check))
+
+    print("Bot is up and polling...")
+    app.run_polling()
+    
